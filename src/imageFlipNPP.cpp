@@ -23,7 +23,7 @@
 #include <FreeImage.h>
 
 // some parts of the code are from 
-// boxFilterNPP lab in CUDAAtScale coursera course
+// boxFilterNPP lab in CUDAatScale coursera course
 
 bool printfNPPinfo(int argc, char *argv[])
 {
@@ -46,179 +46,175 @@ bool printfNPPinfo(int argc, char *argv[])
     return bVal;
 }
 
-int main(int argc, char *argv[]) {
+// load or open png image
+FIBITMAP* loadImage(const std::string& filename) 
+{
+    printf("Opening png image\n");
+    FIBITMAP *loadedimage = FreeImage_Load(FIF_PNG, filename.c_str(), PNG_DEFAULT);
 
-    printf("%s Starting...\n\n", argv[0]);
+    if (!loadedimage)
+    {
+        std::cerr << "Cannot load image error noticed" << std::endl;
+        FreeImage_DeInitialise();
+        exit(-1);
+    }
+
+    return loadedimage;
+}
+
+// Save png image
+void saveImage(const std::string &filename, FIBITMAP *imagetosave)
+{
+    printf("Saving png image \n");
+    if (!FreeImage_Save(FIF_PNG, imagetosave, filename.c_str(), PNG_DEFAULT))
+    {
+        std::cerr << "Error saving image" << std::endl;
+        FreeImage_Unload(imagetosave);
+        FreeImage_DeInitialise();
+        exit(-1);
+    }
+}
+
+FIBITMAP *flipPngImage(FIBITMAP* hstSrcPngImg)
+{
+    printf("Flipping png image \n");
+    // get image width, height, bits per pixel, pitch 
+    int imgWidth = FreeImage_GetWidth(hstSrcPngImg);
+    int imgHeight = FreeImage_GetHeight(hstSrcPngImg);
+    int imgBpp = FreeImage_GetBPP(hstSrcPngImg);
+    int imgPitch = FreeImage_GetPitch(hstSrcPngImg);
+    int imgChannels = imgBpp / 8;
+
+    // create struct with ROI size
+    NppiSize oSizeROI = {imgWidth, imgHeight};
+
+    // get data from host image
+    BYTE *imgData = FreeImage_GetBits(hstSrcPngImg);
+
+    // allocate image sizes on device
+    npp::ImageNPP_8u_C4 oDeviceSrc(oSizeROI.width, oSizeROI.height);
+    npp::ImageNPP_8u_C4 oDeviceDst(oSizeROI.width, oSizeROI.height);
+
+    // copy image data from host to gpu
+    cudaMemcpy2D(oDeviceSrc.data(), imgPitch, imgData, imgPitch, 
+        imgWidth * imgChannels * sizeof(Npp8u), imgHeight, cudaMemcpyHostToDevice);
+
+    // do image flip using nppimirror method
+    NPP_CHECK_NPP(nppiMirror_8u_C4R(oDeviceSrc.data(), 
+        imgWidth * imgChannels * sizeof(Npp8u), oDeviceDst.data(),
+        imgWidth * imgChannels * sizeof(Npp8u), oSizeROI, NPP_VERTICAL_AXIS));
+
+    //  Copy the processed image data back from device to host
+    cudaMemcpy2D(imgData, imgPitch, oDeviceDst.data(), imgPitch, 
+        imgWidth * imgChannels * sizeof(Npp8u), imgHeight, cudaMemcpyDeviceToHost);
+
+    // free device memory
+    nppiFree(oDeviceSrc.data());
+    nppiFree(oDeviceDst.data());
+
+    // assign data back to host png format
+    FIBITMAP *hstDstPngImg = FreeImage_ConvertFromRawBits(
+        imgData,
+        imgWidth,
+        imgHeight,
+        imgPitch,
+        imgBpp,
+        0, 0, 0,
+        FALSE);
+
+    return hstDstPngImg;
+}
+
+int main(int argc, char *argv[])
+{
+    printf("%s Starting...\n", argv[0]);
 
     try
     {
 
+        // initial part of code to get device and command line args
+        // adopted from boxFilterNPP lab from CUDAatScale coursera course
         std::string sFilename;
-
         char *filePath;
 
         findCudaDevice(argc, (const char **)argv);
 
-        if (printfNPPinfo(argc, argv) == false) {
-
+        if (printfNPPinfo(argc, argv) == false)
+        {
             exit(EXIT_SUCCESS);
         }
 
-        if (checkCmdLineFlag(argc, (const char **)argv, "input")) {
-
+        if (checkCmdLineFlag(argc, (const char **)argv, "input"))
+        {
             getCmdLineArgumentString(argc, (const char **)argv, "input", &filePath);
         }
-
-        else {
-            
+        else
+        {
             filePath = sdkFindFilePath("sloth.png", argv[0]);
         }
 
-        if (filePath) {
-            
+        if (filePath)
+        {
             sFilename = filePath;
         }
-
-        else {
-            
+        else
+        {
             sFilename = "sloth.png";
         }
 
         std::string sResultFilename = sFilename;
-
         std::string::size_type dot = sResultFilename.rfind('.');
 
-        if (dot != std::string::npos) {
-            
+        if (dot != std::string::npos)
+        {
             sResultFilename = sResultFilename.substr(0, dot);
         }
 
         sResultFilename += "_flipped.png";
 
-        if (checkCmdLineFlag(argc, (const char **)argv, "output")) {
-
+        if (checkCmdLineFlag(argc, (const char **)argv, "output"))
+        {
             char *outputFilePath;
-            
             getCmdLineArgumentString(argc, (const char **)argv, "output",
                                      &outputFilePath);
-            
             sResultFilename = outputFilePath;
         }
 
+        // free image initialisation
         FreeImage_Initialise();
 
-        FIBITMAP *hstSrcPngImg = FreeImage_Load(FIF_PNG, sFilename.c_str(), PNG_DEFAULT);
+        // open png image
+        FIBITMAP *hstSrcPngImg = loadImage(sFilename);
 
-        if (!hstSrcPngImg) {
+        // do image flipping using NPP mirror method
+        FIBITMAP *hstDstPngImg = flipPngImage(hstSrcPngImg);
 
-            std::cerr << "Cannot load image error noticed" << std::endl;
-            
-            FreeImage_DeInitialise();
-            
-            return -1;
-        }
-
-        // Check color type of image
-        FREE_IMAGE_COLOR_TYPE colorType = FreeImage_GetColorType(hstSrcPngImg);
-
-        // Convert the image to 8-bit grayscale if colortype is not FIC_MINISBLACK
-        if (colorType != FIC_MINISBLACK) {
-            
-            FIBITMAP *pngGrayScaleImg = FreeImage_ConvertToGreyscale(hstSrcPngImg);
-            
-            FreeImage_Unload(hstSrcPngImg);
-            
-            if (!pngGrayScaleImg) {
-
-                std::cerr << "Cannot convert image to graysacale" << std::endl;
-                
-                FreeImage_DeInitialise();
-                
-                return -1;
-            }
-
-            hstSrcPngImg = pngGrayScaleImg;
-        }
-
-        // init image width and height 
-        int imgWidth = FreeImage_GetWidth(hstSrcPngImg);
-        int imgHeight = FreeImage_GetHeight(hstSrcPngImg);
-
-        // create struct with ROI size
-        NppiSize oSizeROI = {imgWidth, imgHeight};
-
-        // allocate image size on device
-        npp::ImageNPP_8u_C1 oDeviceSrc(oSizeROI.width, oSizeROI.height);
-        npp::ImageNPP_8u_C1 oDeviceDst(oSizeROI.width, oSizeROI.height);
-        
-        // get data from host image
-        BYTE *imgData = FreeImage_GetBits(hstSrcPngImg);
-
-        // copy image from host to device
-        cudaMemcpy(oDeviceSrc.data(), imgData, imgWidth * imgHeight * sizeof(Npp8u), cudaMemcpyHostToDevice);
-
-        // do image flip
-        NPP_CHECK_NPP(nppiMirror_8u_C1R(
-            oDeviceSrc.data(), oSizeROI.width, oDeviceDst.data(),
-            oSizeROI.width, oSizeROI, NPP_VERTICAL_AXIS));
-
-        // declare a host image for the result
-        npp::ImageCPU_8u_C1 oHostDst(oDeviceDst.size());
-
-        // copy data from device to host
-        cudaMemcpy(oHostDst.data(), oDeviceDst.data(), imgWidth * imgHeight * sizeof(Npp8u), cudaMemcpyDeviceToHost);
-
-        nppiFree(oDeviceDst.data());
-        nppiFree(oDeviceSrc.data());
-
-        // assign data for an empty host image
-        FIBITMAP *hstDstPngImg = FreeImage_ConvertFromRawBits(
-            oHostDst.data(),
-            imgWidth,
-            imgHeight,
-            imgWidth * sizeof(Npp8u),
-            8,
-            0, 0, 0,
-            false);
-
-        // Save image 
-        if (!FreeImage_Save(FIF_PNG, hstDstPngImg, sResultFilename.c_str(), PNG_DEFAULT)) {
-
-            std::cerr << "Error saving image" << std::endl;
-            
-            FreeImage_Unload(hstDstPngImg);
-            
-            FreeImage_DeInitialise();
-            
-            return -1;
-        }
+        // save the output png image
+        saveImage(sResultFilename, hstDstPngImg);
 
         // free up
         FreeImage_Unload(hstSrcPngImg);
-
         FreeImage_DeInitialise();
 
+        printf("Done \n");
         exit(EXIT_SUCCESS);
     }
 
-    catch (npp::Exception &rException) {
-        
+    // catch npp exceptions
+    catch (npp::Exception &rException)
+    {
         std::cerr << "Program error! The following exception occurred: \n";
-        
         std::cerr << rException << std::endl;
-        
         std::cerr << "Aborting." << std::endl;
 
         exit(EXIT_FAILURE);
     }
-    catch (...) {
-        
+    catch (...)
+    {
         std::cerr << "Program error! An unknown type of exception occurred. \n";
-        
         std::cerr << "Aborting." << std::endl;
 
         exit(EXIT_FAILURE);
-        
         return -1;
     }
 

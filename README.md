@@ -79,7 +79,7 @@ replace 'image-name' with the actual png image name that needs to be flipped
 
 ### Via Makefile arguments
 
-in line 28 of the Makefile change 'grey-sloth' to the desired png image name
+in line 28 of the Makefile replace 'grey-sloth' in 2 occasions to the desired png image name
 and run the following command in terminal while being inside CUDAatScaleIndependentProject_ArunSPV
 directory
 
