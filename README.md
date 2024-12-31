@@ -13,7 +13,14 @@ SM 2.0
 
 ### Makefile
    
-Makefile contains rules for building and running the png image flip code
+Makefile contains rules for building and running the png image flip code.
+
+If the repository is cloned and run inside boxFilterNPP VS code workspace of 
+CUDAatScale coursera course, nothing needs to be changed in makefile
+
+If the code is built and run in some other machine, 
+dependencies for running the makefile present between lines 3 to 7 
+needs to be changed accordingly
 
 ### src
 
@@ -40,6 +47,8 @@ CUDA library need to be present in below location of the machine where the code 
 
 If cuda is installed in a different location replace the above location with the different location.
 
+FreeImage library needs to be installed locally in your machine if the code is run outside CUDAatScale 
+boxFilterNPP lab vscode workspace 
 
 ## How to clone the repository
 
